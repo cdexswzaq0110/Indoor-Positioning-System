@@ -11,6 +11,7 @@ __pycache__/
 ml/data/raw/
 ml/data/svhn/
 ml/data/yolo/
+ml/data/floor_test/
 ml/runs/
 *.pt
 *.onnx
