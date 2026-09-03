@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Indoor Positioning",
+    "slug": "ips-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "android": {
+      "package": "com.ips.mobile",
+      "permissions": ["CAMERA"]
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.ips.mobile"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "需要相機權限才能辨識地板上的數字地標。"
+        }
+      ]
+    ]
+  }
+}

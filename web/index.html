@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Indoor Positioning — 中控前端</title>
+<style>
+  :root {
+    --bg: #f7f5f2; --panel: #ffffff; --ink: #1c1917; --muted: #78716c;
+    --line: #e7e2dc; --accent: #b4551f; --ok: #15803d; --warn: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16130f; --panel: #211d18; --ink: #f5f0ea; --muted: #a8a29e;
+      --line: #37312a; --accent: #e2833f; --ok: #4ade80; --warn: #fbbf24;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16130f; --panel: #211d18; --ink: #f5f0ea; --muted: #a8a29e;
+    --line: #37312a; --accent: #e2833f; --ok: #4ade80; --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", "Noto Sans TC", sans-serif;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  h1 { font-size: 17px; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; }
+  #conn { margin-left: auto; font-size: 12px; padding: 3px 10px; border-radius: 99px;
+          border: 1px solid var(--line); color: var(--muted); }
+  #conn.live { color: var(--ok); border-color: currentColor; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; padding: 16px 20px; }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .card h2 { font-size: 13px; margin: 0 0 10px; text-transform: uppercase;
+             letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+  /* 尺寸由 JS 的 fitCanvas() 決定：長廊型場域很高，要夾在視窗內才看得完。 */
+  #stage { display: block; margin: 0 auto; border-radius: 8px; }
+  .side { display: flex; flex-direction: column; gap: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.num, .num { font-variant-numeric: tabular-nums; }
+  .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+  #log { max-height: 220px; overflow-y: auto; font-size: 12.5px; }
+  #log div { padding: 4px 0; border-bottom: 1px solid var(--line); color: var(--muted); }
+  #log b { color: var(--ink); font-weight: 600; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  input[type=text] {
+    flex: 1; min-width: 110px; padding: 7px 9px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit;
+  }
+  button, label.file {
+    padding: 7px 13px; border-radius: 7px; border: 1px solid var(--accent);
+    background: var(--accent); color: #fff; font: inherit; cursor: pointer;
+  }
+  label.file { background: transparent; color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  #result { margin-top: 10px; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+  .ok { color: var(--ok); } .bad { color: var(--warn); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Indoor Positioning</h1>
+  <span class="sub" id="site">載入中…</span>
+  <span id="conn">連線中…</span>
+</header>
+
+<main>
+  <section class="card">
+    <h2>樓層平面 / Live Fix</h2>
+    <canvas id="stage" width="640" height="1180"></canvas>
+  </section>
+
+  <div class="side">
+    <section class="card">
+      <h2>目前位置</h2>
+      <table id="devices"><thead>
+        <tr><th>Device</th><th>節點</th><th>座標</th><th>信心</th></tr>
+      </thead><tbody></tbody></table>
+      <div class="empty" id="devices-empty">尚無定位結果。</div>
+    </section>
+
+    <section class="card">
+      <h2>上傳測試（模擬手機端）</h2>
+      <div class="row">
+        <input type="text" id="device-id" value="test-device" placeholder="device_id">
+        <label class="file">選擇影像<input type="file" id="file" accept="image/*" hidden></label>
+        <button id="send" disabled>送出</button>
+      </div>
+      <div id="result"></div>
+    </section>
+
+    <section class="card">
+      <h2>事件</h2>
+      <div id="log"><div>等待事件…</div></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const API = location.origin;
+let mapData = null, floor = null;
+const devices = new Map();
+
+const $ = (s) => document.querySelector(s);
+const canvas = $("#stage"), ctx = canvas.getContext("2d");
+const PAD = 34;
+// 畫布的 CSS 尺寸。所有繪圖座標都用這組，字級才不會被縮放。
+const view = { w: 640, h: 640 };
+
+function css(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+/**
+ * 依容器寬度與視窗高度，把樓層的長寬比塞進去，再照 devicePixelRatio 建後備緩衝。
+ * 長廊型場域（高遠大於寬）會被高度夾住，而不是把整頁撐長。
+ */
+function fitCanvas() {
+  if (!floor) return;
+  const box = canvas.parentElement;
+  const availW = Math.max(240, box.clientWidth - 32);
+  const availH = Math.max(320, window.innerHeight - 190);
+  const ratio = floor.height_m / floor.width_m;
+
+  let w = availW, h = w * ratio;
+  if (h > availH) { h = availH; w = h / ratio; }
+
+  view.w = Math.round(w);
+  view.h = Math.round(h);
+  canvas.style.width = view.w + "px";
+  canvas.style.height = view.h + "px";
+
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(view.w * dpr);
+  canvas.height = Math.round(view.h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function toPx(x, y) {
+  // 場域座標是公尺、y 往北增加；畫布 y 往下，所以翻轉。
+  const w = view.w - PAD * 2, h = view.h - PAD * 2;
+  return [PAD + (x / floor.width_m) * w, PAD + (1 - y / floor.height_m) * h];
+}
+
+function draw() {
+  if (!floor) return;
+  const ink = css("--ink"), muted = css("--muted"), line = css("--line"),
+        accent = css("--accent"), panel = css("--panel");
+  ctx.clearRect(0, 0, view.w, view.h);
+
+  // 底圖網格，一格一公尺
+  ctx.strokeStyle = line; ctx.lineWidth = 1;
+  for (let m = 0; m <= floor.width_m; m += 1) {
+    const px = toPx(m, 0)[0];
+    ctx.beginPath(); ctx.moveTo(px, PAD); ctx.lineTo(px, view.h - PAD); ctx.stroke();
+  }
+  for (let m = 0; m <= floor.height_m; m += 1) {
+    const py = toPx(0, m)[1];
+    ctx.beginPath(); ctx.moveTo(PAD, py); ctx.lineTo(view.w - PAD, py); ctx.stroke();
+  }
+
+  const anyById = {};
+  for (const n of mapData.nodes) anyById[n.id] = n;
+  for (const p of mapData.pois) anyById[p.id] = p;
+
+  // 節點之間的鄰接線
+  ctx.strokeStyle = muted; ctx.lineWidth = 2;
+  for (const n of mapData.nodes) {
+    for (const nb of (n.neighbors || [])) {
+      const t = anyById[nb];
+      if (!t) continue;
+      const a = toPx(n.x, n.y), b = toPx(t.x, t.y);
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    }
+  }
+
+  // POI
+  for (const p of mapData.pois) {
+    if (p.floor !== floor.id) continue;
+    const c = toPx(p.x, p.y);
+    ctx.fillStyle = panel; ctx.strokeStyle = muted; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.rect(c[0] - 16, c[1] - 13, 32, 26); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = muted; ctx.font = "12px system-ui"; ctx.textAlign = "center";
+    ctx.fillText(p.name, c[0], c[1] + 30);
+  }
+
+  // Landmark 節點
+  for (const n of mapData.nodes) {
+    if (n.floor !== floor.id) continue;
+    const c = toPx(n.x, n.y);
+    ctx.fillStyle = panel; ctx.strokeStyle = accent; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(c[0], c[1], 18, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = accent; ctx.font = "600 16px system-ui";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(String(n.landmark_digit), c[0], c[1] + 1);
+    ctx.textBaseline = "alphabetic";
+  }
+
+  // 裝置目前位置
+  for (const fix of devices.values()) {
+    if (fix.coordinate.floor !== floor.id) continue;
+    const c = toPx(fix.coordinate.x, fix.coordinate.y);
+    ctx.fillStyle = accent;
+    ctx.beginPath(); ctx.arc(c[0], c[1], 8, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = accent; ctx.globalAlpha = 0.35; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(c[0], c[1], 26, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = ink; ctx.font = "600 12px system-ui"; ctx.textAlign = "left";
+    ctx.fillText(fix.device_id, c[0] + 32, c[1] + 4);
+  }
+}
+
+function renderDevices() {
+  const tbody = $("#devices tbody");
+  tbody.innerHTML = "";
+  $("#devices-empty").style.display = devices.size ? "none" : "block";
+  for (const f of devices.values()) {
+    const tr = document.createElement("tr");
+    const xy = f.coordinate.x.toFixed(1) + ", " + f.coordinate.y.toFixed(1);
+    tr.innerHTML =
+      "<td>" + f.device_id + "</td><td>" + f.node_name + "</td>" +
+      '<td class="num">(' + xy + ')</td>' +
+      '<td class="num">' + (f.confidence * 100).toFixed(0) + "%</td>";
+    tbody.appendChild(tr);
+  }
+}
+
+function logEvent(html) {
+  const box = $("#log");
+  if (box.dataset.clean !== "1") { box.innerHTML = ""; box.dataset.clean = "1"; }
+  const d = document.createElement("div");
+  d.innerHTML = '<span class="num">' + new Date().toLocaleTimeString() + "</span> — " + html;
+  box.prepend(d);
+  while (box.children.length > 60) box.lastChild.remove();
+}
+
+function applyFix(fix) {
+  devices.set(fix.device_id, fix);
+  renderDevices();
+  draw();
+  logEvent("<b>" + fix.device_id + "</b> → " + fix.node_name +
+           "（數字 " + fix.digit + "，" + (fix.confidence * 100).toFixed(0) + "%）");
+}
+
+async function boot() {
+  const mapRes = await fetch(API + "/api/v1/map");
+  mapData = await mapRes.json();
+  floor = mapData.floors[0];
+  $("#site").textContent = mapData.site + " · " + floor.name + " · " +
+                           mapData.nodes.length + " 個地標";
+  fitCanvas();
+
+  const posRes = await fetch(API + "/api/v1/positions");
+  for (const f of await posRes.json()) devices.set(f.device_id, f);
+
+  renderDevices();
+  draw();
+  connect();
+
+  window.addEventListener("resize", () => { fitCanvas(); draw(); });
+}
+
+function connect() {
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(scheme + "://" + location.host + "/ws/positions");
+  ws.onopen = () => {
+    $("#conn").textContent = "● 即時連線";
+    $("#conn").classList.add("live");
+  };
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.type === "fix") applyFix(m.data);
+  };
+  ws.onclose = () => {
+    $("#conn").textContent = "連線中斷，重試中…";
+    $("#conn").classList.remove("live");
+    setTimeout(connect, 2000);
+  };
+  setInterval(() => { if (ws.readyState === 1) ws.send("ping"); }, 25000);
+}
+
+$("#file").addEventListener("change", (e) => {
+  $("#send").disabled = !e.target.files.length;
+});
+
+$("#send").addEventListener("click", async () => {
+  const file = $("#file").files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append("image", file);
+  fd.append("device_id", $("#device-id").value || "test-device");
+  $("#send").disabled = true;
+  $("#result").textContent = "推論中…";
+  try {
+    const r = await fetch(API + "/api/v1/detect", { method: "POST", body: fd });
+    const j = await r.json();
+    $("#result").className = j.ok ? "ok" : "bad";
+    $("#result").textContent = j.ok
+      ? "✓ " + j.fix.node_name + "（" + j.fix.coordinate.x + ", " + j.fix.coordinate.y +
+        "）· " + j.inference_ms + "ms · " + j.model
+      : "✕ " + (j.reason || "無結果") + " · " + j.inference_ms + "ms · " + j.model;
+  } catch (err) {
+    $("#result").className = "bad";
+    $("#result").textContent = "✕ 連線失敗：" + err;
+  } finally {
+    $("#send").disabled = false;
+  }
+});
+
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
+boot().catch((err) => { $("#site").textContent = "載入地圖失敗：" + err; });
+</script>
+</body>
+</html>

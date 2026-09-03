@@ -1,0 +1,18 @@
+{
+  "site": "Demo Building",
+  "version": 1,
+  "coordinate_unit": "meter",
+  "floors": [
+    { "id": 1, "name": "1F", "width_m": 12.0, "height_m": 26.0 }
+  ],
+  "nodes": [
+    { "id": "L1", "landmark_digit": 1, "floor": 1, "x": 6.0, "y": 4.0,  "name": "1 號區（走廊南端）", "neighbors": ["L2"] },
+    { "id": "L2", "landmark_digit": 2, "floor": 1, "x": 6.0, "y": 10.0, "name": "2 號區",             "neighbors": ["L1", "L3", "P_MEETING"] },
+    { "id": "L3", "landmark_digit": 3, "floor": 1, "x": 6.0, "y": 16.0, "name": "3 號區",             "neighbors": ["L2", "L4", "P_ELEVATOR"] },
+    { "id": "L4", "landmark_digit": 4, "floor": 1, "x": 6.0, "y": 22.0, "name": "4 號區（走廊北端）", "neighbors": ["L3"] }
+  ],
+  "pois": [
+    { "id": "P_MEETING",  "floor": 1, "x": 1.5,  "y": 10.0, "name": "會議室",   "name_en": "Conference Room" },
+    { "id": "P_ELEVATOR", "floor": 1, "x": 10.5, "y": 16.0, "name": "電梯",     "name_en": "Elevator" }
+  ]
+}

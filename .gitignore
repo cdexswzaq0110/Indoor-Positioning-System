@@ -1,0 +1,30 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Claude harness local overrides
+.claude/settings.local.json
+
+# ML artifacts
+ml/data/raw/
+ml/data/svhn/
+ml/data/yolo/
+ml/runs/
+*.pt
+*.onnx
+*.tflite
+!ml/weights/.gitkeep
+
+# Node / mobile
+node_modules/
+.expo/
+dist/
+build/
+*.log
+
+# Runtime
+backend/data/captures/
+backend/data/*.db
+.env

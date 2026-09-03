@@ -1,0 +1,26 @@
+# 後端 + 訓練管線。torch 走 CUDA 12.8 輪子，安裝時要指定 index：
+#   pip install torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cu128
+#   pip install -r backend/requirements.txt
+#
+# 沒有 NVIDIA GPU 的機器把上面那行換成一般 pip install torch torchvision（CPU 輪子），
+# 其餘不變；後端會自動退回 CPU 推論。
+
+# --- API ---
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+python-multipart==0.0.32
+websockets==17.1
+pydantic==2.13.5
+
+# --- 推論與訓練 ---
+ultralytics==8.4.138
+pillow==12.3.0
+numpy==2.4.6
+
+# --- 資料集轉檔（SVHN digitStruct.mat 是 HDF5）---
+h5py==3.16.0
+scipy==1.17.1
+
+# --- 端上模型匯出 ---
+onnx==1.22.0
+onnxruntime==1.29.0
